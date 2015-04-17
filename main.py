@@ -1,38 +1,38 @@
 import sys
-from random import randint, random, choice
+from random import randint, random, choice, shuffle
 from itertools import cycle
 
-lattice_dimension = 60
+lattice_dimension = 1
 point_mutation_rate = .0025
 frameshift_rate = .05
-#default_sip = ??
+default_sip = ??
 
 instruction_set = [
-    'nop_A'
-    'nop_B'
-    'nop_C'
-    'if_n_equ'
-    'if_less'
-    'pop'
-    'push'
-    'swap_stk'
-    'swap'
-    'shift_r'
-    'shift_l'
-    'inc'
-    'dec'
-    'add'
-    'sub'
-    'nand'
-    'IO'
-    'h_alloc'
-    'h_divide'
-    'h_copy'
-    'h_search'
-    'mov_head'
-    'jmp_head'
-    'get_head'
-    'if_label'
+    'nop_A',
+    'nop_B',
+    'nop_C',
+    'if_n_equ',
+    'if_less',
+    'pop',
+    'push',
+    'swap_stk',
+    'swap',
+    'shift_r',
+    'shift_l',
+    'inc',
+    'dec',
+    'add',
+    'sub',
+    'nand',
+    'IO',
+    'h_alloc',
+    'h_divide',
+    'h_copy',
+    'h_search',
+    'mov_head',
+    'jmp_head',
+    'get_head',
+    'if_label',
     'set_flow'
 ]
 
@@ -63,10 +63,11 @@ class Organism:
     def randval():
         return randint(0, 2 ** 32 - 1)
 
+    def output():
+        pass
 
     # x and y give the location on the lattice
     def __init__(self, lattice, starting_genome, x, y):
-
         self.lattice = lattice
         self.instructions = starting_genome
         self.x = x
@@ -90,16 +91,28 @@ class Organism:
 
         self.active_stack = 0
         self.stacks = [ [], [] ]
+        self.sips = 100
+        self.computational_merit = 1
 
         self.recent_copies = []
 
         self.qreg = None
 
     def step(self):
+        if self.sips == 0:
+
         ixn = self.instructions[self.heads['ip']]
+
+        ### XXX more underspecified
+        if ixn == 'undefined':
+        	self.heads['ip'] = 0
+        	ixn = self.instructions[self.heads['ip']]
+
+        print ixn
         self.qreg = self.instructions[(self.heads['ip'] + 1) % len(self.instructions)]
         getattr(self, ixn)()
         self.heads['ip'] = (self.heads['ip'] + 1) % len(self.instructions)
+        self.sips -= 1
 
     def pop_stack(self):
         if len(self.stacks[self.active_stack]) == 0:
@@ -160,8 +173,8 @@ class Organism:
 
     def swap(self):
         tmp = self.regs[self.get_complement()]
-        self.regs[self.get_complement()] = self.regs[self.qreg]
-        self.regs[self.qreg] = tmp
+        self.regs[self.get_complement()] = self.regs[self.get_reg()]
+        self.regs[self.get_reg()] = tmp
 
     def shift_r(self):
         self.regs[self.get_reg()] >>= 1
@@ -193,12 +206,20 @@ class Organism:
     # TODO: this is pretty underspecified how much memory is actually allocated. it says "as much as they can". is this
     # based on energy? what happens if write head goes too far? should it wrap around?
     def h_alloc(self):
-        self.instructions += ['undefined'] * 300
+        self.instructions += ['undefined'] * 100
 
     def h_divide(self):
         # XXX I think wh should be excluded? cut off the remaining "undefined"s
+
+        print self.heads
         child_instructions = self.instructions[self.heads['rh']:self.heads['wh']]
         self.instructions = self.instructions[:self.heads['rh']]
+
+        # XXX: more unspecified
+        self.heads['rh'] = self.heads['wh'] = self.heads['fh'] = 0
+
+        if len(child_instructions) == 0:
+        	return
 
         # XXX: is this where we insert a frameshift mutation?
         if random() < frameshift_rate:
@@ -208,13 +229,16 @@ class Organism:
                 new_location = randint(0, len(child_instructions))
                 new_instruction = choice(instruction_set)
                 child_instructions.insert(new_location, new_instruction)
+        # TODO parent or child could have instruction length 0?
+        if len(child_instructions) == 0:
+        	return
+
 
         # the child clobbers whoever is originally at this location
         child_x = (self.x + randint(-1, 1)) % lattice_dimension
         child_y = (self.y + randint(-1, 1)) % lattice_dimension
+        print child_instructions, self.instructions
         child = Organism(self.lattice, child_instructions, child_x, child_y)
-        print child.instructions == self.instructions
-        sys.exit()
 
         # "kill" the previous organism at this location
         lattice[child_y][child_x] = child
@@ -226,7 +250,7 @@ class Organism:
             self.instructions[self.heads['wh']] = self.instructions[self.heads['rh']]
 
         # XXX should this take in the read head or the actual written instruction?
-        self.recent_copies.append(self.instructions[self.heads['wh']])
+        self.recent_copies.append(self.instructions[self.heads['rh']])
 
         self.heads['wh'] = (self.heads['wh'] + 1) % len(self.instructions)
         self.heads['rh'] = (self.heads['rh'] + 1) % len(self.instructions)
@@ -274,7 +298,7 @@ class Organism:
         self.heads[self.resolve_head()] = self.heads['fh']
         # handle the fact that "step" is about to advance ip by 1
         if self.resolve_head() == 'ip':
-        	self.heads['ip'] -= 1
+            self.heads['ip'] -= 1
 
     def jmp_head(self):
         # wrap around
@@ -299,9 +323,8 @@ class Organism:
                 break
             i += 1
 
-        # TODO: not specified? just assume the if failed
-        if len(comp_template) == 0:
-            self.heads['ip'] = (self.heads['ip'] + 1) % len(self.instructions)
+        if len(comp_template) == 0 or len(comp_template) > len(self.recent_copies):
+            self.heads['ip'] = (self.heads['ip'] + i) % len(self.instructions)
             return
 
         self.heads['ip'] = (self.heads['ip'] + i - 1) % len(self.instructions)
@@ -325,9 +348,13 @@ lattice = []
 for i in range(lattice_dimension):
     lattice.append([])
     for j in range(lattice_dimension):
-        lattice[-1].append(0)
-        #lattice[-1].append(Organism(starting_genome, j, i))
+        lattice[-1].append(Organism(lattice, starting_genome, j, i))
 
-o = Organism(lattice, starting_genome, 0, 0)
 while True:
-	o.step()
+    rows = range(lattice_dimension)
+    columns = range(lattice_dimension)
+    shuffle(rows)
+    shuffle(columns)
+    for i in rows:
+        for j in columns:
+            lattice[i][j].step()
