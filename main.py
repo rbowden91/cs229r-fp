@@ -5,7 +5,7 @@ from itertools import cycle
 lattice_dimension = 1
 point_mutation_rate = .0025
 frameshift_rate = .05
-default_sip = ??
+default_sip = 100 # XXX
 
 instruction_set = [
     'nop_A',
@@ -36,6 +36,64 @@ instruction_set = [
     'set_flow'
 ]
 
+tasks = [
+    # XXX is this how not should work?
+    {
+    	'name' : 'NOT',
+    	'merit' : 2,
+    	'args' : 1,
+    	'checkers' : [lambda x: ~x]
+    },
+    {
+    	'name' : 'NAND',
+    	'merit' : 2,
+    	'args' : 2,
+    	'checkers' : [lambda x, y: ~(x & y)]
+    },
+    {
+    	'name' : 'AND',
+    	'merit' : 4,
+    	'args' : 2,
+    	'checkers' : [lambda x, y: x & y]
+    },
+    {
+    	'name' : 'OR_N',
+    	'merit' : 4,
+    	'args' : 2,
+    	'checkers' : [(lambda x, y: x | ~y), (lambda x, y: ~x | y)]
+    },
+    {
+    	'name' : 'OR',
+    	'merit' : 8,
+    	'args' : 2,
+    	'checkers' : [lambda x, y: x | y]
+    },
+    {
+    	'name' : 'AND_N',
+    	'merit' : 8,
+    	'args' : 2,
+    	'checkers' : [(lambda x, y: x & ~y), (lambda x, y: ~x & y)]
+    },
+    {
+    	'name' : 'NOR',
+    	'merit' : 16,
+    	'args' : 2,
+    	'checkers' : [lambda x, y: ~x & ~y]
+    },
+    {
+    	'name' : 'XOR',
+    	'merit' : 8,
+    	'args' : 2,
+    	'checkers' : [lambda x, y: (x & ~y) | (~x & y)]
+    },
+    {
+    	'name' : 'EQU',
+    	'merit' : 8,
+    	'args' : 2,
+    	'checkers' : [lambda x, y: (x & y) | (~x & ~y)]
+    }
+]
+
 
 # a genome that just encodes for copying
 starting_genome = [
@@ -56,15 +114,14 @@ starting_genome = [
     'nop_B'
 ]
 
+
+
 # http://devolab.cse.msu.edu/software/avida/doc/cpu_tour.html
 class Organism:
 
     @staticmethod
     def randval():
         return randint(0, 2 ** 32 - 1)
-
-    def output():
-        pass
 
     # x and y give the location on the lattice
     def __init__(self, lattice, starting_genome, x, y):
@@ -73,7 +130,33 @@ class Organism:
         self.x = x
         self.y = y
 
-        self.inputs = cycle([self.randval(), self.randval(), self.randval()])
+        self.inputs = (self.randval(), self.randval(), self.randval())
+        self.input_cycle = cycle(self.inputs)
+
+        # calculate all the potential values we're looking to match against with IO
+        self.matches = {}
+        for task in tasks:
+            task_matches = []
+            for c in task['checkers']:
+                if task['args'] == 1:
+                    task_matches += [
+                        { 'value' : c(self.inputs[0]), 'inputs' : [0] },
+                        { 'value' : c(self.inputs[1]), 'inputs' : [1] },
+                        { 'value' : c(self.inputs[2]), 'inputs' : [0] },
+                    ]
+                else:
+                    task_matches += [
+                        { 'value' : c(self.inputs[0], self.inputs[1]), 'inputs' : [0, 1] },
+                        { 'value' : c(self.inputs[1], self.inputs[2]), 'inputs' : [1, 2] },
+                        { 'value' : c(self.inputs[2], self.inputs[0]), 'inputs' : [0, 2] },
+                    ]
+            for m in task_matches:
+            	if m['value'] not in self.matches:
+            		self.matches[m['value']] = []
+            	m['name'] = task['name']
+                m['merit'] = task['merit']
+                self.matches[m['value']].append(m)
+
 
         # at the very least, ip and rh need to start at beginning
         self.heads = {
@@ -98,21 +181,33 @@ class Organism:
 
         self.qreg = None
 
+    def output(self, value):
+        # XXX should only check with inputs that have actually been entered
+        # XXX do they need to match multiple times to get the merit?? something seemed to suggest that
+        for task in tasks:
+            if value in self.matches:
+            	# TODO
+                print 'matched task ' + self.matches[value]['name']
+
     def step(self):
-        if self.sips == 0:
+        # a divide could potentially result in a parent or child with no instructions
+        if len(self.instructions) == 0:
+        	return
 
         ixn = self.instructions[self.heads['ip']]
+        print ixn
 
         ### XXX more underspecified
         if ixn == 'undefined':
         	self.heads['ip'] = 0
         	ixn = self.instructions[self.heads['ip']]
 
-        print ixn
         self.qreg = self.instructions[(self.heads['ip'] + 1) % len(self.instructions)]
         getattr(self, ixn)()
-        self.heads['ip'] = (self.heads['ip'] + 1) % len(self.instructions)
-        self.sips -= 1
+
+        # check in case dividing ruined the parents memory
+        if len(self.instructions) != 0:
+            self.heads['ip'] = (self.heads['ip'] + 1) % len(self.instructions)
 
     def pop_stack(self):
         if len(self.stacks[self.active_stack]) == 0:
@@ -164,9 +259,12 @@ class Organism:
     def pop(self):
         self.regs[self.get_reg()] = self.pop_stack()
 
-    # TODO: they apparently limit depth to 10? unspecified
     def push(self):
         self.stacks[self.active_stack].append(self.regs[self.get_reg()])
+
+        # they say they limit the depth of the stack to 10, but only for practical reasons
+        if len(self.stacks[self.active_stack]) > 10:
+        	self.stacks[self.active_stack].pop(0)
 
     def swap_stk(self):
         self.active_stack = 1 if self.active_stack == 0 else 0
@@ -192,8 +290,8 @@ class Organism:
     def add(self):
         self.regs[self.get_reg()] = (self.regs['bx'] + self.regs['cx']) % (2 ** 32)
 
-    # python handles modulo of negative numbers correctly
     def sub(self):
+        # python handles modulo of negative numbers correctly
         self.regs[self.get_reg()] = (self.regs['cx'] - self.regs['bx']) % (2 ** 32)
 
     def nand(self):
@@ -201,7 +299,7 @@ class Organism:
 
     def IO(self):
         self.output(self.get_reg())
-        self.regs[self.get_reg()] = self.inputs.next()
+        self.regs[self.get_reg()] = self.input_cycle.next()
 
     # TODO: this is pretty underspecified how much memory is actually allocated. it says "as much as they can". is this
     # based on energy? what happens if write head goes too far? should it wrap around?
@@ -209,32 +307,24 @@ class Organism:
         self.instructions += ['undefined'] * 100
 
     def h_divide(self):
-        # XXX I think wh should be excluded? cut off the remaining "undefined"s
-
-        print self.heads
+        # XXX handle if write head wrapped around?
         child_instructions = self.instructions[self.heads['rh']:self.heads['wh']]
         self.instructions = self.instructions[:self.heads['rh']]
 
         # XXX: more unspecified
         self.heads['rh'] = self.heads['wh'] = self.heads['fh'] = 0
+        # XXX XXX XXX what happens if the divide cuts off where the parent's head is? for now just do this
+        self.heads['ip'] = 0
 
-        if len(child_instructions) == 0:
-        	return
-
-        # XXX: is this where we insert a frameshift mutation?
-        if random() < frameshift_rate:
+        if len(child_instructions) != 0 and random() < frameshift_rate:
             if random() < .5:
                 del child_instructions[randint(0,len(child_instructions) - 1)]
             else:
                 new_location = randint(0, len(child_instructions))
                 new_instruction = choice(instruction_set)
                 child_instructions.insert(new_location, new_instruction)
-        # TODO parent or child could have instruction length 0?
-        if len(child_instructions) == 0:
-        	return
 
-
-        # the child clobbers whoever is originally at this location
+        # the child clobbers whomever is originally at this location
         child_x = (self.x + randint(-1, 1)) % lattice_dimension
         child_y = (self.y + randint(-1, 1)) % lattice_dimension
         print child_instructions, self.instructions
