@@ -98,7 +98,6 @@ class Organism:
     def step(self):
         ixn = self.instructions[self.heads['ip']]
         self.qreg = self.instructions[(self.heads['ip'] + 1) % len(self.instructions)]
-        print ixn, self.heads['ip']
         getattr(self, ixn)()
         self.heads['ip'] = (self.heads['ip'] + 1) % len(self.instructions)
 
@@ -204,16 +203,17 @@ class Organism:
         # XXX: is this where we insert a frameshift mutation?
         if random() < frameshift_rate:
             if random() < .5:
-                del child.instructions[randint(0,len(child.instructions) - 1)]
+                del child_instructions[randint(0,len(child_instructions) - 1)]
             else:
-                new_location = randint(0, len(child.instructions))
+                new_location = randint(0, len(child_instructions))
                 new_instruction = choice(instruction_set)
-                child.instructions.insert(new_location, new_instruction)
+                child_instructions.insert(new_location, new_instruction)
 
         # the child clobbers whoever is originally at this location
         child_x = (self.x + randint(-1, 1)) % lattice_dimension
         child_y = (self.y + randint(-1, 1)) % lattice_dimension
         child = Organism(self.lattice, child_instructions, child_x, child_y)
+        print child.instructions == self.instructions
         sys.exit()
 
         # "kill" the previous organism at this location
@@ -221,7 +221,7 @@ class Organism:
 
     def h_copy(self):
         if random() < point_mutation_rate:
-            self.instructions[self.heads['wh']] = choice(self.instruction_set)
+            self.instructions[self.heads['wh']] = choice(instruction_set)
         else:
             self.instructions[self.heads['wh']] = self.instructions[self.heads['rh']]
 
@@ -255,16 +255,16 @@ class Organism:
 
         self.heads['ip'] = (self.heads['ip'] + i - 1) % len(self.instructions)
 
-
         for j in range(1, len(self.instructions) - i):
             for k in range(len(comp_template)):
-                if (self.heads['ip'] + j + k) % len(self.instructions) != comp_template[k]:
+                if self.instructions[(self.heads['ip'] + j + k) % len(self.instructions)] != comp_template[k]:
                     break
             # we found the template!
             else:
                 self.regs['bx'] = j
                 self.regs['cx'] = len(comp_template)
-                self.heads['fh'] = (self.heads['ip'] + j) % len(self.instructions)
+                self.heads['fh'] = (self.heads['ip'] + j + k + 1) % len(self.instructions)
+                return
 
         # XXX not really specified what should happen if template not found
         self.regs['bx'] = self.regs['cx'] = 0
@@ -272,6 +272,9 @@ class Organism:
 
     def mov_head(self):
         self.heads[self.resolve_head()] = self.heads['fh']
+        # handle the fact that "step" is about to advance ip by 1
+        if self.resolve_head() == 'ip':
+        	self.heads['ip'] -= 1
 
     def jmp_head(self):
         # wrap around
@@ -304,7 +307,7 @@ class Organism:
         self.heads['ip'] = (self.heads['ip'] + i - 1) % len(self.instructions)
 
         for i in range(len(comp_template)):
-            if comp_template[i] != self.recent_copies[-1 - i]:
+            if comp_template[-1 - i] != self.recent_copies[-1 - i]:
                 break
         else:
             # we will execute the instruction
