@@ -2,7 +2,7 @@ import sys
 from random import randint, random, choice, shuffle
 from itertools import cycle
 
-lattice_dimension = 5
+lattice_dimension = 10
 point_mutation_rate = 0.0025
 frameshift_rate = 0.05
 avg_ixn_per_update = 30
@@ -187,10 +187,10 @@ class Organism:
     def output(self, value):
         # XXX should only check with inputs that have actually been entered
         # XXX do they need to match multiple times to get the merit?? something seemed to suggest that
-        for task in tasks:
-            if value in self.matches:
-                # TODO
-                print 'matched task ' + self.matches[value]['name']
+	if value in self.matches:
+	    # TODO
+	    sys.stderr.write('matched task ' + self.matches[value][0]['name'] + '\n')
+	    sys.stderr.flush()
 
     def step(self):
         # a divide could potentially result in a parent or child with no instructions
@@ -202,9 +202,12 @@ class Organism:
 
         # if we hit the h_alloc'd undefined tail, reset ip to beginning
         if ixn == 'undefined':
-            print self.instructions
             self.heads['ip'] = 0
             ixn = self.instructions[0]
+	    # the organism overwrote its entire memory. just give up and die
+            if ixn == 'undefined':
+            	self.instructions = []
+            	return
 
         self.qreg = self.instructions[(self.heads['ip'] + 1) % len(self.instructions)]
         getattr(self, ixn)()
@@ -303,7 +306,7 @@ class Organism:
         self.regs[self.get_reg()] = ~(self.regs['bx']  & self.regs['cx'])
 
     def IO(self):
-        self.output(self.get_reg())
+        self.output(self.regs[self.get_reg()])
         self.regs[self.get_reg()] = self.input_cycle.next()
 
     # TODO: this is pretty underspecified how much memory is actually allocated. it says "as much as they can". is this
@@ -342,20 +345,20 @@ class Organism:
         child_x = (self.x + randint(-1, 1)) % lattice_dimension
         child_y = (self.y + randint(-1, 1)) % lattice_dimension
         child = Organism(self.lattice, child_instructions, child_x, child_y)
-        print self.instructions, child_instructions
+        #print self.instructions, child_instructions
 
         # "kill" the previous organism at this location
         lattice[child_y][child_x] = child
 
     def h_copy(self):
-        print len(self.instructions), self.heads['wh'], self.heads['fh']
+        #print len(self.instructions), self.heads['wh'], self.heads['fh']
         if random() < point_mutation_rate:
             self.instructions[self.heads['wh']] = choice(instruction_set)
         else:
             self.instructions[self.heads['wh']] = self.instructions[self.heads['rh']]
 
         # unspecified whether this hsould use the "mutated" value. Assume it shouldn't, to prevent breaking replication
-        # also unspecified, but we limit this to 10 (if-label then can't have a template longer than 10)
+        # also unspecified, but we limit this to 10 (if-label thus can't have a template longer than 10)
         self.recent_copies.append(self.instructions[self.heads['rh']])
         if len(self.recent_copies) > 10:
             self.recent_copies.pop(0)
@@ -452,7 +455,7 @@ class Organism:
 
 
     def set_flow(self):
-        self.heads['fh'] = self.regs['cx']
+        self.heads['fh'] = self.regs['cx'] % len(self.instructions)
 
 
 lattice = []
