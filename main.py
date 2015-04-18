@@ -3,8 +3,8 @@ from random import randint, random, choice, shuffle
 from itertools import cycle
 
 lattice_dimension = 5
-point_mutation_rate = 0
-frameshift_rate = 0
+point_mutation_rate = 0.0025
+frameshift_rate = 0.05
 avg_ixn_per_update = 30
 
 instruction_set = [
@@ -198,12 +198,13 @@ class Organism:
             return
 
         ixn = self.instructions[self.heads['ip']]
-        print ixn, self.heads['rh'], self.heads['wh'], self.heads['fh']
+        #print ixn, self.heads['rh'], self.heads['wh'], self.heads['fh']
 
-        ### XXX more underspecified
+        # if we hit the h_alloc'd undefined tail, reset ip to beginning
         if ixn == 'undefined':
+            print self.instructions
             self.heads['ip'] = 0
-            ixn = self.instructions[self.heads['ip']]
+            ixn = self.instructions[0]
 
         self.qreg = self.instructions[(self.heads['ip'] + 1) % len(self.instructions)]
         getattr(self, ixn)()
@@ -311,10 +312,17 @@ class Organism:
         self.instructions += ['undefined'] * 100
 
     def h_divide(self):
-        # XXX handle if write head wrapped around?
-        child_instructions = self.instructions[self.heads['rh']:self.heads['wh']]
-        self.instructions = self.instructions[:self.heads['rh']]
-        print child_instructions, self.instructions
+
+
+        # XXX if write head somehow wrapped around, there's overlap, but who knows how to handle it...
+        if self.heads['rh'] > self.heads['wh']:
+            child_instructions = self.instructions[self.heads['wh']:self.heads['rh']]
+        else:
+            child_instructions = self.instructions[self.heads['rh']:self.heads['wh']]
+
+        # unspecified, but get rid of all undefined's caused by h-alloc
+        child_instructions = filter(lambda x: x != 'undefined', child_instructions)
+        self.instructions = filter(lambda x: x != 'undefined', self.instructions[:self.heads['rh']])
 
         # XXX: more unspecified
         self.heads['rh'] = self.heads['wh'] = self.heads['fh'] = 0
@@ -334,11 +342,13 @@ class Organism:
         child_x = (self.x + randint(-1, 1)) % lattice_dimension
         child_y = (self.y + randint(-1, 1)) % lattice_dimension
         child = Organism(self.lattice, child_instructions, child_x, child_y)
+        print self.instructions, child_instructions
 
         # "kill" the previous organism at this location
-        #lattice[child_y][child_x] = child
+        lattice[child_y][child_x] = child
 
     def h_copy(self):
+        print len(self.instructions), self.heads['wh'], self.heads['fh']
         if random() < point_mutation_rate:
             self.instructions[self.heads['wh']] = choice(instruction_set)
         else:
@@ -400,7 +410,11 @@ class Organism:
 
     def jmp_head(self):
         # wrap around
-        self.heads[self.resolve_head()] += self.regs['cx']
+        self.heads[self.resolve_head()] = (self.heads[self.resolve_head()] + self.regs['cx']) % len(self.instructions)
+
+        # handle the fact that "step" is about to advance ip by 1
+        if self.resolve_head() == 'ip':
+            self.heads['ip'] -= 1
 
     def get_head(self):
         self.regs['cx'] = self.heads[self.resolve_head()]
@@ -447,26 +461,32 @@ for i in range(lattice_dimension):
     for j in range(lattice_dimension):
         lattice[-1].append(Organism(lattice, starting_genome, j, i))
 
+rounds = 0
 while True:
     # how exactly to allocate SIPs is somewhat unclear. We decided on giving each organism a SIP amount
     # equal to its computational merit (based on tasks completed) * genome_length
-    total_sips = 0
     for i in range(lattice_dimension):
         for j in range(lattice_dimension):
             lattice[i][j].sips += lattice[i][j].initial_length * lattice[i][j].computational_merit
-            total_sips += lattice[i][j].sips
+
+    # flatten our 2D array and sort based on SIP
+    organisms = [x for sublist in lattice for x in sublist]
+    organisms.sort(lambda x, y: y.sips - x.sips)
 
     # give an average of thirty (default) instructions per organism. this is a single update timeslice
     for i in range(lattice_dimension ** 2 * avg_ixn_per_update):
-        # TODO: this is inefficient. choose which organism to run an update on based on sip / total sips
-        chosen_sip = randint(0, total_sips)
-        done = False
-        for i in range(lattice_dimension):
-            for j in range(lattice_dimension):
-                chosen_sip -= lattice[i][j].sips
-                if chosen_sip < 0:
-                    lattice[i][j].step()
-                    done = True
-                    break
-            if done:
+        # use stochastic update to choose which organism to run an update. see
+        # http://en.wikipedia.org/wiki/Fitness_proportionate_selection#Java_-_stochastic_acceptance_O.281.29_version
+        while True:
+            chosen = randint(0, len(organisms) - 1)
+            max_sip = organisms[0].sips
+            # apply a step to this organism
+            if (float(organisms[chosen].sips) / max_sip >= random()):
+                organisms[chosen].step()
+                # fix the organisms order in the list
+                while chosen + 1 < len(organisms) and organisms[chosen].sips < organisms[chosen+1].sips:
+                    organisms[chosen], organisms[chosen+1] = organisms[chosen+1], organisms[chosen]
+                    chosen += 1
                 break
+    print 'done with time slice ' + str(rounds)
+    rounds += 1
