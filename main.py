@@ -82,13 +82,13 @@ tasks = [
     },
     {
         'name' : 'XOR',
-        'merit' : 8,
+        'merit' : 16,
         'args' : 2,
         'checkers' : [lambda x, y: (x & ~y) | (~x & y)]
     },
     {
         'name' : 'EQU',
-        'merit' : 8,
+        'merit' : 32,
         'args' : 2,
         'checkers' : [lambda x, y: (x & y) | (~x & ~y)]
     }
