@@ -1,10 +1,5 @@
 //bpu.rs - defines the functionality of a biological processing unit
-
-
-//The Tape for a child can only be at most 2 x the parents
-const OFFSPRING_MAX_GROWTH : i32 = 2;
-//Any tape can be atmost 2048 at any time
-const MAX_TAPE_SIZE : i32 = 2048;
+use rand;
 //The registers which exist on our BPU
 #[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
 pub enum Register {
@@ -15,6 +10,7 @@ pub enum Register {
     //CX register
     CX
 }
+
 
 //The various heads which shift through our tape
 #[derive(PartialOrd, PartialEq, Eq, Ord)]
@@ -55,7 +51,9 @@ impl Register {
 #[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
 pub enum InstructionSet {
     //A NO-OP which sets the target register to the value it contains
-    NOP(Register),
+    NOPA,
+    NOPB,
+    NOPC,
     //Conditionally skips the next instruction if CURR_REG == COMP_REG
     IFNEQU,
     //Conditionally skips the next instruction if CURR_REG < COMP_REG
@@ -90,7 +88,8 @@ pub enum InstructionSet {
     JMPHEAD,
     //sets CX to be equal to the position of the current head
     GETHEAD,
-    //Checks if the following template is a subset of complement template
+    //Reads the following template and computes its complement
+    //Checks if this complement is part of the most recently copied data
     //If it is, we execute the next instruction after the template
     IFLABEL,
     //Outputs CURR_REG for checking, then sets CURR_REG to be one of our inputs
@@ -118,6 +117,10 @@ pub enum InstructionSet {
     HSEARCH,
 }
 
+
+impl Rand for InstructionSet {
+
+}
 //Represents the memory in which our instructions lives
 pub struct Memory {
     //Our actual memory
@@ -127,7 +130,7 @@ pub struct Memory {
 
 impl Memory {
     //Creates a new empty memory
-    pub fn new() {
+    pub fn new() -> Memory {
         Memory{tape : Vec::new()}
     }
 
@@ -147,4 +150,11 @@ impl Memory {
         }
         Some(Memory{tape : ntape})
    }
+
+    //Grabs the value at a given position in the tape
+    pub fn get(&self, idx : usize) -> Option<InstructionSet>{
+        self.tape.get(idx).unwrap_or(&None).clone()
+    }
+
+
 }

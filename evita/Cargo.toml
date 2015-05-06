@@ -3,5 +3,8 @@ name = "evita"
 version = "0.1.0"
 authors = ["Oreoluwa Babarinsa <oreoluwa.babarinsa@gmail.com>"]
 
+[dependencies]
+rand = "0.3"
+
 [dependencies.toml]
 git = "https://github.com/alexcrichton/toml-rs.git"
