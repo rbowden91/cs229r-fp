@@ -1,7 +1,8 @@
-//bpu.rs - defines the functionality of a biological processing unit
-use rand;
+//hardware.rs - defines the functionality of a biological processing unit
+use rand::{Rng, sample, thread_rng, random, Rand};
+use bpu::constants;
 //The registers which exist on our BPU
-#[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
+#[derive(PartialOrd, PartialEq, Eq, Ord, Clone, Copy)]
 pub enum Register {
     //AX register
     AX,
@@ -48,12 +49,10 @@ impl Register {
 
 //The InstructionSet which is run by our BPU
 //NOTE: CURR_REG refers to the currently active register, COMP_REG refers to its complement
-#[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
+#[derive(PartialOrd, PartialEq, Eq, Ord, Clone, Copy)]
 pub enum InstructionSet {
     //A NO-OP which sets the target register to the value it contains
-    NOPA,
-    NOPB,
-    NOPC,
+    NOP(Register),
     //Conditionally skips the next instruction if CURR_REG == COMP_REG
     IFNEQU,
     //Conditionally skips the next instruction if CURR_REG < COMP_REG
@@ -115,11 +114,45 @@ pub enum InstructionSet {
     //NOTE: If no template, cx becomes 0
     //This function scans through all of memory to find a complement
     HSEARCH,
+    LEARN
 }
+//Listing of all instructions for iteration
+static INSTRUCTIONS: [InstructionSet; 27] = [
+    InstructionSet::NOP(Register::AX),
+    InstructionSet::NOP(Register::BX),
+    InstructionSet::NOP(Register::CX),
+    InstructionSet::IFNEQU,
+    InstructionSet::IFLESS,
+    InstructionSet::POP,
+    InstructionSet::PUSH,
+    InstructionSet::SWAP,
+    InstructionSet::SWAPSTK,
+    InstructionSet::INC,
+    InstructionSet::DEC,
+    InstructionSet::ADD,
+    InstructionSet::SUB,
+    InstructionSet::RSHIFT,
+    InstructionSet::LSHIFT,
+    InstructionSet::NAND,
+    InstructionSet::SETFLOW,
+    InstructionSet::MOVHEAD,
+    InstructionSet::JMPHEAD,
+    InstructionSet::GETHEAD,
+    InstructionSet::IFLABEL,
+    InstructionSet::IO,
+    InstructionSet::HALLOC,
+    InstructionSet::HDIVIDE,
+    InstructionSet::HCOPY,
+    InstructionSet::HSEARCH,
+    InstructionSet::LEARN
+];
 
 
 impl Rand for InstructionSet {
-
+    fn rand<R>(rng: &mut R) -> InstructionSet where R : Rng {
+        let select = sample(rng, INSTRUCTIONS.iter(), 1);
+        select[0].clone()
+    }
 }
 //Represents the memory in which our instructions lives
 pub struct Memory {
@@ -135,9 +168,9 @@ impl Memory {
     }
 
     //Creates a tape by coping a subsection of an existing memory
-    pub fn with_subsection<'a>(source : &'a Memory, start : i32, end: i32) -> Option<Memory> {
+    pub fn with_subsection<'a>(source : &'a Memory, start : i32, end: i32, shift : bool) -> Option<Memory> {
         //if [start, end) is not a valid subselection of the Memory, return None
-        if start > end {
+        if start > end || (end as usize) > source.tape.len() {
            return None;
         }
         //Calculate the length of our new Memory
@@ -146,7 +179,7 @@ impl Memory {
         let mut ntape : Vec<Option<InstructionSet>> = Vec::with_capacity(nlen);
         for idx in start .. end {
             //push each a copy of each element to our new tape
-            ntape.push(source.tape.get(idx as usize).unwrap_or(&None).clone());
+            ntape.push(source.tape[idx as usize]);
         }
         Some(Memory{tape : ntape})
    }
@@ -156,5 +189,14 @@ impl Memory {
         self.tape.get(idx).unwrap_or(&None).clone()
     }
 
-
+    //Puts a specific value into the array, may mutate if the mutate flag is set
+    pub fn put(&mut self, instr : InstructionSet, idx : usize, mutate : bool) {
+        if(idx < self.tape.len()){
+            if mutate && random::<f64>() < constants::POINT_MUTATION_RATE {
+                let mut rng = thread_rng();
+                self.tape[idx] = Some(random());
+            }
+            self.tape[idx] = Some(instr);
+        }
+    }
 }
