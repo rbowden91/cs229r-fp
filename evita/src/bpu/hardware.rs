@@ -1,6 +1,7 @@
 //hardware.rs - defines the functionality of a biological processing unit
 use rand::{Rng, sample, thread_rng, random, Rand};
 use bpu::constants;
+use std::cmp::min;
 //The registers which exist on our BPU
 #[derive(PartialOrd, PartialEq, Eq, Ord, Clone, Copy)]
 pub enum Register {
@@ -199,4 +200,38 @@ impl Memory {
             self.tape[idx] = Some(instr);
         }
     }
+
+    //Get the length of our memory
+    pub fn memsize(&self) -> usize{
+        self.tape.len()
+    }
+
+    //allocates more space in our memory, filled with nones
+    pub fn alloc(&mut self){
+        let nsize = min::<usize>(constants::MAX_TAPE_SIZE, constants::OFFSPRING_MAX_GROWTH * self.tape.len());
+        while self.tape.len() < nsize {
+            self.tape.push(None);
+        }
+    }
+
+
+}
+//Register representing our actual
+struct BPU {
+    //The memory on which we operate
+    mem : Memory,
+    //Our registers and current register information
+    curr_reg : InstructionSet,
+    ax : i32,
+    bx : i32,
+    cx : i32,
+    //Our various heads for reading and writing
+    //Floating head for copying
+    fh : i32,
+    //Our writing head
+    wh : i32,
+    //Our reading head
+    rh : i32,
+    //Our Instruction Pointer
+    ip : i32,
 }
