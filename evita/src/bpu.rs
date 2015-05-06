@@ -6,8 +6,8 @@ const OFFSPRING_MAX_GROWTH : i32 = 2;
 //Any tape can be atmost 2048 at any time
 const MAX_TAPE_SIZE : i32 = 2048;
 //The registers which exist on our BPU
-#[deriving(Ord)]
-enum Register {
+#[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
+pub enum Register {
     //AX register
     AX,
     //BX register, our default register
@@ -17,8 +17,8 @@ enum Register {
 }
 
 //The various heads which shift through our tape
-#[deriving(Ord)]
-enum Head {
+#[derive(PartialOrd, PartialEq, Eq, Ord)]
+pub enum Head {
     //Instruction Pointer
     IP,
     //Read head (i.e. where on the tape are we reading?)
@@ -33,27 +33,27 @@ enum Head {
 //Implementation of convenience methods for registers
 impl Register {
     //Matches each register to their complement in Evita
-    fn getComplement(&self) -> Register {
+    pub fn get_complement(&self) -> Register {
         match *self {
-            AX => BX,
-            BX => CX,
-            CX => AX
+            Register::AX => Register::BX,
+            Register::BX => Register::CX,
+            Register::CX => Register::AX
         }
     }
     //Maps the active register onto a given head
-    fn resolveHead(&self) -> Head {
+    pub fn resolve_head(&self) -> Head {
         match *self {
-            AX => IP,
-            BX => RH,
-            CX => WH
+            Register::AX => Head::IP,
+            Register::BX => Head::RH,
+            Register::CX => Head::WH
         }
     }
 }
 
 //The InstructionSet which is run by our BPU
 //NOTE: CURR_REG refers to the currently active register, COMP_REG refers to its complement
-#[deriving(Ord, Rand)]
-enum InstructionSet {
+#[derive(PartialOrd, PartialEq, Eq, Ord, Clone)]
+pub enum InstructionSet {
     //A NO-OP which sets the target register to the value it contains
     NOP(Register),
     //Conditionally skips the next instruction if CURR_REG == COMP_REG
@@ -116,7 +116,35 @@ enum InstructionSet {
     //NOTE: If no template, cx becomes 0
     //This function scans through all of memory to find a complement
     HSEARCH,
-    //A blank instruction, used for uninitialized memory
-    BLANK
+}
 
+//Represents the memory in which our instructions lives
+pub struct Memory {
+    //Our actual memory
+    tape : Vec<Option<InstructionSet>>,
+}
+
+
+impl Memory {
+    //Creates a new empty memory
+    pub fn new() {
+        Memory{tape : Vec::new()}
+    }
+
+    //Creates a tape by coping a subsection of an existing memory
+    pub fn with_subsection<'a>(source : &'a Memory, start : i32, end: i32) -> Option<Memory> {
+        //if [start, end) is not a valid subselection of the Memory, return None
+        if start > end {
+           return None;
+        }
+        //Calculate the length of our new Memory
+        let nlen : usize = (end - start) as usize;
+        //allocate our new tape
+        let mut ntape : Vec<Option<InstructionSet>> = Vec::with_capacity(nlen);
+        for idx in start .. end {
+            //push each a copy of each element to our new tape
+            ntape.push(source.tape.get(idx as usize).unwrap_or(&None).clone());
+        }
+        Some(Memory{tape : ntape})
+   }
 }
