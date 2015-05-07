@@ -33,7 +33,7 @@ instruction_set = [
     'jmp_head',
     'get_head',
     'if_label',
-    'set_flow'
+    'set_flow',
 ]
 
 tasks = [
@@ -124,7 +124,8 @@ class Organism:
         return randint(0, 2 ** 32 - 1)
 
     # x and y give the location on the lattice
-    def __init__(self, lattice, starting_genome, x, y):
+    def __init__(self, lattice, starting_genome, x, y, sips = 0):
+        self.parent = None
         self.lattice = lattice
         self.instructions = starting_genome
 
@@ -132,6 +133,7 @@ class Organism:
         self.initial_length = len(self.instructions)
         self.x = x
         self.y = y
+        self.learned = {}
 
         self.inputs = (self.randval(), self.randval(), self.randval())
         self.input_cycle = cycle(self.inputs)
@@ -169,6 +171,8 @@ class Organism:
             'fh': 0
         }
 
+        self.completed = set()
+
         self.regs = {
             'ax': self.randval(),
             'bx': self.randval(),
@@ -177,7 +181,7 @@ class Organism:
 
         self.active_stack = 0
         self.stacks = [ [], [] ]
-        self.sips = 0
+        self.sips = sips
         self.computational_merit = 1
 
         self.recent_copies = []
@@ -187,10 +191,17 @@ class Organism:
     def output(self, value):
         # XXX should only check with inputs that have actually been entered
         # XXX do they need to match multiple times to get the merit?? something seemed to suggest that
-	if value in self.matches:
-	    # TODO
-	    sys.stderr.write('matched task ' + self.matches[value][0]['name'] + '\n')
-	    sys.stderr.flush()
+        if value in self.matches:
+            if self.parent is None:
+                fname =  self.matches[value][0]['name']
+                if fname not in self.completed:
+                    self.completed.add(fname)
+                    self.computational_merit += self.matches[value][0]['merit']
+                    sys.stderr.write('matched task ' + fname + '\n')
+                    sys.stderr.flush()
+            else:
+                #Message parent that we completed a new
+                pass
 
     def step(self):
         # a divide could potentially result in a parent or child with no instructions
@@ -204,24 +215,28 @@ class Organism:
         if ixn == 'undefined':
             self.heads['ip'] = 0
             ixn = self.instructions[0]
-	    # the organism overwrote its entire memory. just give up and die
+        # the organism overwrote its entire memory. just give up and die
             if ixn == 'undefined':
-            	self.instructions = []
-            	return
+                self.instructions = []
+                return
 
         self.qreg = self.instructions[(self.heads['ip'] + 1) % len(self.instructions)]
-        getattr(self, ixn)()
+        r = getattr(self, ixn)()
 
         # check in case dividing ruined the parents memory
         if len(self.instructions) != 0:
             self.heads['ip'] = (self.heads['ip'] + 1) % len(self.instructions)
         self.sips -= 1
+        return r
 
     def pop_stack(self):
         if len(self.stacks[self.active_stack]) == 0:
             return self.randval()
         else:
             return self.stacks[self.active_stack].pop()
+
+    def learn(self):
+        pass
 
     def get_reg(self):
         if self.qreg == 'nop_A':
@@ -307,7 +322,7 @@ class Organism:
 
     def IO(self):
         self.output(self.regs[self.get_reg()])
-        self.regs[self.get_reg()] = self.input_cycle.next()
+        self.regs[self.get_reg()] = next(self.input_cycle)
 
     # TODO: this is pretty underspecified how much memory is actually allocated. it says "as much as they can". is this
     # based on energy? what happens if write head goes too far? should it wrap around?
@@ -324,8 +339,8 @@ class Organism:
             child_instructions = self.instructions[self.heads['rh']:self.heads['wh']]
 
         # unspecified, but get rid of all undefined's caused by h-alloc
-        child_instructions = filter(lambda x: x != 'undefined', child_instructions)
-        self.instructions = filter(lambda x: x != 'undefined', self.instructions[:self.heads['rh']])
+        child_instructions = list(filter(lambda x: x != 'undefined', child_instructions))
+        self.instructions = list(filter(lambda x: x != 'undefined', self.instructions[:self.heads['rh']]))
 
         # XXX: more unspecified
         self.heads['rh'] = self.heads['wh'] = self.heads['fh'] = 0
@@ -344,7 +359,8 @@ class Organism:
         # the child clobbers whomever is originally at this location
         child_x = (self.x + randint(-1, 1)) % lattice_dimension
         child_y = (self.y + randint(-1, 1)) % lattice_dimension
-        child = Organism(self.lattice, child_instructions, child_x, child_y)
+        child = Organism(self.lattice, child_instructions, child_x, child_y, self.sips / 2)
+        self.sips /= 2
         #print self.instructions, child_instructions
 
         # "kill" the previous organism at this location
@@ -474,7 +490,7 @@ while True:
 
     # flatten our 2D array and sort based on SIP
     organisms = [x for sublist in lattice for x in sublist]
-    organisms.sort(lambda x, y: y.sips - x.sips)
+    organisms.sort(key = lambda x : x.sips)
 
     # give an average of thirty (default) instructions per organism. this is a single update timeslice
     for i in range(lattice_dimension ** 2 * avg_ixn_per_update):
@@ -484,12 +500,12 @@ while True:
             chosen = randint(0, len(organisms) - 1)
             max_sip = organisms[0].sips
             # apply a step to this organism
-            if (float(organisms[chosen].sips) / max_sip >= random()):
+            if (float(organisms[chosen].sips) / max(max_sip, 1) >= random()):
                 organisms[chosen].step()
                 # fix the organisms order in the list
                 while chosen + 1 < len(organisms) and organisms[chosen].sips < organisms[chosen+1].sips:
                     organisms[chosen], organisms[chosen+1] = organisms[chosen+1], organisms[chosen]
                     chosen += 1
                 break
-    print 'done with time slice ' + str(rounds)
+    print( 'done with time slice ' + str(rounds))
     rounds += 1
